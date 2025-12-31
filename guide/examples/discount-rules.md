@@ -1,0 +1,458 @@
+# Discount Rules Examples
+
+Curl examples for discount rules, manual discounts, and trade restrictions.
+
+**Base URL:** `http://localhost:5000/api/v1`
+**API Key:** `banana` (passed via Basic Auth with empty username: `-u ":banana"`)
+
+> **See also:** [Examples Index](../examples.md) | [Orders & Fulfillment](./orders.md) | [Reference Documentation](../../reference/)
+
+---
+
+## Discount Rule Anatomy
+
+A discount rule defines **when** and **how** discounts apply. Key properties:
+
+| Property | Purpose |
+|----------|---------|
+| `seller` / `buyer` | Scope the rule to specific sellers or buyer groups (e.g., employee customers). Use `include` arrays with identifier references. |
+| `currency` | Restrict to specific currencies (e.g., `{"currencyCode": "SEK"}`). |
+| `time` | Optional validity window with `start` and `end` dates (ISO format). |
+| `phase` | Determines evaluation order. Rules in lower-priority phases apply first; higher-priority phases can stack on top. Include `identifiers`, `name`, and `priority`. |
+| `items` | A **named map** of item groups. Each key (e.g., `"phone"`, `"plan"`) defines a group with `include`/`exclude` arrays and optional `atLeast`/`atMost` quantity constraints. |
+| `where.equals` | Links item groups by matching property paths (e.g., ensuring a phone's IMEI matches a plan's phoneImei for bundle discounts). |
+| `effects` | Array of effect objects. Each effect must include `@type`, which items it targets, and how it applies. |
+| `effects[].@type` | Effect type: `"percentage discount rule effect"`, `"fixed reduction discount rule effect"`, `"fixed price discount rule effect"`, or `"package discount rule effect"`. |
+| `effects[].items` | **Must reference keys from the `items` map** (e.g., `["phone"]` or `["item1", "item2"]`). |
+| `effects[].multiplicity` | `"PerUnit"` (applies to each qualifying unit) or `"PerApplication"` (applies once per rule match). |
+| `effects[].targeting` | `"All"` (affects all matching items), `"LowestValue"` (targets the cheapest item), or `"HighestValue"` (targets the most expensive item). |
+| `effects[].minimumResultingPrice` | Floor price after discount (prevents negative prices). |
+| `includesTax` | Whether the discount applies to tax-inclusive prices (`true`) or pre-tax prices (`false`). |
+| `reason` | A reference to explain why the discount was applied (shown on receipts). |
+
+```bash
+# List all discount rules
+curl -X GET -u ":banana" "localhost:5000/api/v1/discount-rules"
+
+# Get discount rule by ID
+curl -X GET -u ":banana" "localhost:5000/api/v1/discount-rules/com.heads.seedID=employee-discount"
+```
+
+---
+
+## Example 1: Employee Apparel Percentage Discount (Category-Based)
+
+This rule gives employees 10% off apparel products:
+
+```bash
+curl -X POST -u ":banana" "localhost:5000/api/v1/discount-rules" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.heads.seedID": "employee-discount"},
+    "name": "Employee apparel 10%",
+    "seller": {"include": [{"identifiers": {"com.heads.seedID": "ourcompany"}}]},
+    "buyer": {"include": [{"identifiers": {"com.heads.seedID": "employee-customers"}}]},
+    "currency": {"include": [{"identifiers": {"currencyCode": "SEK"}}]},
+    "phase": {"identifiers": {"com.heads.seedID": "loyalty"}, "name": "Loyalty discounts", "priority": 300},
+    "items": {
+      "apparel": {
+        "include": [{"identifiers": {"com.heads.seedID": "fashion-clothes"}}],
+        "exclude": [],
+        "atLeast": 1
+      }
+    },
+    "effects": [{
+      "@type": "percentage discount rule effect",
+      "items": ["apparel"],
+      "percentage": "10",
+      "multiplicity": "PerUnit",
+      "targeting": "All"
+    }],
+    "reason": {"identifiers": {"com.heads.seedID": "employee-discount-reason"}, "name": "Employee discount"},
+    "includesTax": false
+  }'
+```
+
+---
+
+## Example 2: Phone + Plan Subsidy with Bundle Link
+
+This rule applies a fixed SEK 2,500 reduction when a phone and matching plan are purchased together. The `where.equals` ensures the phone's IMEI matches the plan's `phoneImei` property:
+
+```bash
+curl -X POST -u ":banana" "localhost:5000/api/v1/discount-rules" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.heads.seedID": "phone-plan-subsidy"},
+    "name": "Phone with plan subsidy",
+    "seller": {"include": [{"identifiers": {"com.heads.seedID": "ourcompany"}}]},
+    "currency": {"include": [{"identifiers": {"currencyCode": "SEK"}}]},
+    "phase": {"identifiers": {"com.heads.seedID": "subsidy"}, "name": "Subsidy", "priority": 200},
+    "includesTax": true,
+    "time": {"start": "2025-04-11", "end": "2035-12-11"},
+    "items": {
+      "phone": {
+        "include": [{"identifiers": {"com.heads.seedID": "mobile-telephone-group"}}],
+        "atLeast": 1,
+        "atMost": 1
+      },
+      "plan": {
+        "include": [{"identifiers": {"com.heads.seedID": "mobile-plans-group"}}],
+        "atLeast": 1,
+        "atMost": 1
+      }
+    },
+    "where": {
+      "equals": [
+        "phone.MobileDevice::imei",
+        "plan.MobilePlan::phoneImei"
+      ]
+    },
+    "effects": [{
+      "@type": "fixed reduction discount rule effect",
+      "items": ["phone"],
+      "amount": "2500",
+      "minimumResultingPrice": "1",
+      "multiplicity": "PerApplication",
+      "targeting": "All"
+    }],
+    "reason": {"identifiers": {"com.heads.seedID": "phone-plan-subsidy"}, "name": "Phone with plan"}
+  }'
+```
+
+---
+
+## Example 3: Pair Discount on Two Specific SKUs
+
+This rule gives 25% off when two specific AirPods models are purchased together:
+
+```bash
+curl -X POST -u ":banana" "localhost:5000/api/v1/discount-rules" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.heads.seedID": "buy-together"},
+    "name": "AirPods pair discount",
+    "seller": {"include": [{"identifiers": {"com.heads.seedID": "ourcompany"}}]},
+    "currency": {"include": [{"identifiers": {"currencyCode": "SEK"}}]},
+    "phase": {"identifiers": {"com.heads.seedID": "custom"}, "name": "Custom", "priority": 500},
+    "time": {"start": "2025-04-11", "end": "2035-12-11"},
+    "items": {
+      "item1": {
+        "include": [{"identifiers": {"com.heads.seedID": "apple-airpods-3gen"}}],
+        "exclude": [],
+        "atLeast": 1,
+        "atMost": 1
+      },
+      "item2": {
+        "include": [{"identifiers": {"com.heads.seedID": "apple-airpods-2gen"}}],
+        "exclude": [],
+        "atLeast": 1,
+        "atMost": 1
+      }
+    },
+    "effects": [{
+      "@type": "percentage discount rule effect",
+      "items": ["item1", "item2"],
+      "percentage": "25",
+      "multiplicity": "PerApplication",
+      "targeting": "All"
+    }],
+    "reason": {"identifiers": {"com.heads.seedID": "pair-discount"}, "name": "Pair discount"}
+  }'
+```
+
+---
+
+## Example 4: Percentage Discount on Category (Campaign Promo)
+
+A simple percentage-off campaign targeting all accessories:
+
+```bash
+curl -X POST -u ":banana" "localhost:5000/api/v1/discount-rules" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.heads.seedID": "campaign-accessories-20"},
+    "name": "Accessories 20% off",
+    "seller": {"include": [{"identifiers": {"com.heads.seedID": "stockholm-store"}}]},
+    "currency": {"include": [{"identifiers": {"currencyCode": "SEK"}}]},
+    "phase": {"identifiers": {"com.heads.seedID": "promotions"}, "name": "Promotions", "priority": 400},
+    "items": {
+      "accessory": {
+        "include": [{"identifiers": {"com.heads.seedID": "accessories"}}],
+        "exclude": [],
+        "atLeast": 1
+      }
+    },
+    "effects": [{
+      "@type": "percentage discount rule effect",
+      "items": ["accessory"],
+      "percentage": "20",
+      "multiplicity": "PerUnit",
+      "targeting": "All"
+    }],
+    "includesTax": false,
+    "reason": {"identifiers": {"com.heads.seedID": "campaign"}, "name": "Campaign promo"}
+  }'
+```
+
+---
+
+## Example 5: Quantity Tier Discounts (Volume Breaks)
+
+Two rules implement tiered pricing: 5% off at 3+ items, 10% off at 5+ items. Both rules use the same phase priority so they are evaluated together:
+
+> **Note: How Overlapping Tier Rules Work**
+>
+> When multiple rules match the same instances (e.g., 5 items match both `atLeast: 3` and `atLeast: 5`), the discount engine evaluates possible outcomes and selects the one that **minimizes the total price** (maximizes the customer's discount). Rules within the same phase consume instances—once an instance is discounted by one rule, it's unavailable to other rules in that phase. This means:
+>
+> - **Overlapping tiers compete**, and each item can only be discounted once per phase.
+> - The engine automatically picks the best outcome; with 5 items, it will apply the 10% tier (better discount) rather than the 5% tier.
+> - **For deterministic tiers**, use explicit ranges: `atLeast: 3, atMost: 4` for tier 1 and `atLeast: 5` for tier 2—this ensures exactly one tier matches each quantity.
+> - **To stack discounts**, place rules in separate phases with different priorities; each phase operates independently on all items.
+
+```bash
+# Tier 1: 5% off when buying 3+ items
+curl -X POST -u ":banana" "localhost:5000/api/v1/discount-rules" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.heads.seedID": "tier-3plus-5pct"},
+    "name": "Buy 3+, get 5%",
+    "phase": {"identifiers": {"com.heads.seedID": "promotions"}, "name": "Promotions", "priority": 410},
+    "items": {
+      "cart": {
+        "include": [{"identifiers": {"com.heads.seedID": "all-products"}}],
+        "atLeast": 3
+      }
+    },
+    "effects": [{
+      "@type": "percentage discount rule effect",
+      "items": ["cart"],
+      "percentage": "5",
+      "multiplicity": "PerApplication",
+      "targeting": "All"
+    }],
+    "includesTax": true
+  }'
+
+# Tier 2: 10% off when buying 5+ items
+curl -X POST -u ":banana" "localhost:5000/api/v1/discount-rules" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.heads.seedID": "tier-5plus-10pct"},
+    "name": "Buy 5+, get 10%",
+    "phase": {"identifiers": {"com.heads.seedID": "promotions"}, "name": "Promotions", "priority": 410},
+    "items": {
+      "cart": {
+        "include": [{"identifiers": {"com.heads.seedID": "all-products"}}],
+        "atLeast": 5
+      }
+    },
+    "effects": [{
+      "@type": "percentage discount rule effect",
+      "items": ["cart"],
+      "percentage": "10",
+      "multiplicity": "PerApplication",
+      "targeting": "All"
+    }],
+    "includesTax": true
+  }'
+```
+
+---
+
+## Example 6: Bundle Deal (3-for-2)
+
+The cheapest item is free when buying 3 from a category. Use `targeting: "LowestValue"` with 100% off:
+
+```bash
+curl -X POST -u ":banana" "localhost:5000/api/v1/discount-rules" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.heads.seedID": "bundle-3for2"},
+    "name": "3 for 2 on cosmetics",
+    "currency": {"include": [{"identifiers": {"currencyCode": "SEK"}}]},
+    "phase": {"identifiers": {"com.heads.seedID": "promotions"}, "name": "Promotions", "priority": 300},
+    "items": {
+      "bundle": {
+        "include": [{"identifiers": {"com.heads.seedID": "cosmetics"}}],
+        "atLeast": 3,
+        "atMost": 3
+      }
+    },
+    "effects": [{
+      "@type": "percentage discount rule effect",
+      "items": ["bundle"],
+      "percentage": "100",
+      "multiplicity": "PerApplication",
+      "targeting": "LowestValue"
+    }],
+    "includesTax": true,
+    "reason": {"identifiers": {"com.heads.seedID": "bundle"}, "name": "3-for-2 bundle"}
+  }'
+```
+
+---
+
+## Example 7: Buy X Get Y Free
+
+Buy 2 coffees, get a mug free. Two item groups with a 100% discount applied only to the reward item:
+
+```bash
+curl -X POST -u ":banana" "localhost:5000/api/v1/discount-rules" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.heads.seedID": "coffee-mug-bogo"},
+    "name": "Buy 2 coffees, get mug free",
+    "phase": {"identifiers": {"com.heads.seedID": "promotions"}, "name": "Promotions", "priority": 320},
+    "items": {
+      "coffee": {
+        "include": [{"identifiers": {"com.heads.seedID": "coffee-beans"}}],
+        "atLeast": 2
+      },
+      "mug": {
+        "include": [{"identifiers": {"com.heads.seedID": "ceramic-mug"}}],
+        "atLeast": 1,
+        "atMost": 1
+      }
+    },
+    "effects": [{
+      "@type": "percentage discount rule effect",
+      "items": ["mug"],
+      "percentage": "100",
+      "multiplicity": "PerApplication",
+      "targeting": "LowestValue"
+    }],
+    "includesTax": true,
+    "reason": {"identifiers": {"com.heads.seedID": "bogo"}, "name": "Buy X get Y"}
+  }'
+```
+
+---
+
+## Example 8: Store-Specific Discount
+
+Clearance discount limited to a single store location using the `seller` scope:
+
+```bash
+curl -X POST -u ":banana" "localhost:5000/api/v1/discount-rules" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.heads.seedID": "stockholm-clearance"},
+    "name": "Stockholm clearance -15%",
+    "seller": {"include": [{"identifiers": {"com.heads.seedID": "store-stockholm"}}]},
+    "currency": {"include": [{"identifiers": {"currencyCode": "SEK"}}]},
+    "items": {
+      "clearance": {
+        "include": [{"identifiers": {"com.heads.seedID": "clearance"}}],
+        "atLeast": 1
+      }
+    },
+    "effects": [{
+      "@type": "percentage discount rule effect",
+      "items": ["clearance"],
+      "percentage": "15",
+      "multiplicity": "PerUnit",
+      "targeting": "All"
+    }],
+    "includesTax": true,
+    "reason": {"identifiers": {"com.heads.seedID": "clearance"}, "name": "Store clearance"}
+  }'
+```
+
+---
+
+## Example 9: Staff Discount with Floor Price
+
+Employee discount using `buyer` scope. The `minimumResultingPrice` ensures the price never drops below a floor:
+
+```bash
+curl -X POST -u ":banana" "localhost:5000/api/v1/discount-rules" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.heads.seedID": "staff-apparel-30"},
+    "name": "Staff apparel 30%",
+    "buyer": {"include": [{"identifiers": {"com.heads.seedID": "employee-customers"}}]},
+    "currency": {"include": [{"identifiers": {"currencyCode": "SEK"}}]},
+    "items": {
+      "apparel": {
+        "include": [{"identifiers": {"com.heads.seedID": "fashion-clothes"}}],
+        "atLeast": 1
+      }
+    },
+    "effects": [{
+      "@type": "percentage discount rule effect",
+      "items": ["apparel"],
+      "percentage": "30",
+      "multiplicity": "PerUnit",
+      "targeting": "All",
+      "minimumResultingPrice": "99"
+    }],
+    "includesTax": false,
+    "reason": {"identifiers": {"com.heads.seedID": "staff"}, "name": "Staff discount"}
+  }'
+```
+
+---
+
+## Manual Discounts (Ad-Hoc at POS)
+
+Manual discounts are applied directly to trade orders, not through discount rules. They are set on individual items at order creation time via the `manualDiscount` field:
+
+```bash
+# Create order with manual discount on an item
+curl -X POST -u ":banana" "localhost:5000/api/v1/trade-orders" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.myapp.orderId": "ORD-001"},
+    "supplier": {"identifiers": {"com.heads.seedID": "ourcompany"}},
+    "customer": {"identifiers": {"com.myapp.customerId": "CUST-001"}},
+    "sellers": [{"identifiers": {"com.heads.seedID": "store1"}}],
+    "currency": {"identifiers": {"currencyCode": "SEK"}},
+    "items": [
+      {
+        "product": {"identifiers": {"com.heads.seedID": "iphone16"}},
+        "quantity": 1,
+        "manualDiscount": {"identifiers": {"com.heads.seedID": "loyalty-10pct"}}
+      }
+    ]
+  }'
+
+# Query order with manual discounts expanded
+curl -X GET -u ":banana" "localhost:5000/api/v1/trade-orders/com.myapp.orderId=ORD-001~with(manualDiscounts)"
+```
+
+> **Note:** Manual discounts are set at order creation; the `manualDiscount` field is read-only afterward. Check the `discountable` flag on items before applying.
+
+---
+
+## Trade Restrictions
+
+```bash
+# List trade restrictions
+curl -X GET -u ":banana" "localhost:5000/api/v1/trade-restrictions"
+
+# List trade restriction reasons
+curl -X GET -u ":banana" "localhost:5000/api/v1/trade-restriction-reasons"
+
+# Create trade restriction reason
+curl -X POST -u ":banana" "localhost:5000/api/v1/trade-restriction-reasons" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.myapp.reasonId": "AGE-RESTRICTED"},
+    "name": "Age Restricted Product",
+    "description": "Requires age verification before purchase"
+  }'
+```
+
+---
+
+## Planned Features (Not Yet Supported)
+
+The following discount capabilities are planned for future releases:
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Maximum discount caps | Planned | Per-rule or per-order caps on total discount amount |
+| Discount vouchers | Planned | One-time voucher codes redeemable as discount rules |
+
+For the latest status on these features, contact your CommerceOS representative.
