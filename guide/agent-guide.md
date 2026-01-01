@@ -146,7 +146,7 @@ curl -u ":banana" "localhost:5000/api/v1/products~count"
 **Prerequisites:**
 - Stock place exists with an owner
 - Stock adjustment reason exists
-- Product has `instanceType: MobileDevice`
+- Product supports instance tracking (for IMEI-based adjustments)
 
 **Step 1: Verify stock place exists and has owner**
 ```bash
@@ -232,6 +232,49 @@ curl -X POST -u ":banana" "localhost:5000/api/v1/trade-orders" \
 New → (tryApprove) → Committed → (shipping) → Shipped → Completed
                   ↘ (tryCancel) → Cancelled
 ```
+
+**Required Fields:**
+- `items` must be non-empty (at least 1 item required)
+- `sellers` must be non-empty (at least 1 seller required)
+
+**Product Identifiers:**
+
+Product identifiers require a **fully qualified namespace**. Bare keys like `"sku"` will be rejected:
+
+```bash
+# WRONG - bare key
+{"product": {"identifiers": {"sku": "PHONE-001"}}}
+
+# RIGHT - namespaced key
+{"product": {"identifiers": {"com.example.sku": "PHONE-001"}}}
+```
+
+**Instance Tracking (for serialized products):**
+
+For serialized products (devices, SIM cards), use `instances` instead of `quantity`:
+
+```bash
+# MobileDevice with IMEI
+{
+  "product": {"identifiers": {"com.test.sku": "PHONE-001"}},
+  "instances": [{"imei": "352916109123456"}]
+}
+
+# MobilePlan referencing device in same order
+{
+  "product": {"identifiers": {"com.test.sku": "PLAN-001"}},
+  "instances": [{"phoneImei": "352916109123456"}]
+}
+```
+
+**Order matters:** A MobilePlan item with `phoneImei` must reference an IMEI from a MobileDevice item that appears earlier in the items array.
+
+> **Tip:** Products need the correct `instanceType` set during product creation (not on the order).
+
+**Expansions:**
+- `~with(manualDiscounts)` - Manual discounts applied to order
+- `~with(payments)` - Payment records for this order
+- Item-level: `discountable` flag indicates if item accepts discounts
 
 ---
 
@@ -503,7 +546,7 @@ Body: { "modifiedTag": "2025-12-17" }
 | Resource | Endpoint | Common Parameters |
 |----------|----------|-------------------|
 | Trade Orders | `PUT /trade-orders/@find/results` | `modifiedTag`, `customer`, `supplier`, `buyer`, `seller` |
-| Agents | `PUT /agents/@find/results` | `email`, `phone`, `givenName`, `familyName` |
+| Agents | `PUT /agents/@find/results` | `email`, `phone`, `givenName`, `familyName`, `nationalId` |
 | Receipts | `PUT /receipts/@find/results` | Date range, seller, terminal |
 
 **Trade Order Finder Example:**
@@ -518,6 +561,25 @@ curl -X PUT -u ":banana" "localhost:5000/api/v1/trade-orders/@find/results" \
 curl -X PUT -u ":banana" "localhost:5000/api/v1/agents/@find/results" \
   -H "Content-Type: application/json" \
   -d '{"email": "john@example.com"}'
+```
+
+**Agent Finder Behavior:**
+- Uses heuristic lookup by email, phone, or nationalId
+- Name filtering uses metaphone (phonetic) matching
+- Returns results array; navigate to specific result with `/@find/results/0`
+
+### 6.3 Navigating Finder Results
+
+After finding results, you can navigate into specific elements:
+
+```bash
+# Get first result's name
+PUT /agents/@find/results/0/name
+Body: {"email": "john@example.com"}
+
+# Apply operators to results
+PUT /agents/@find/results~take(5)
+Body: {"givenName": "John"}
 ```
 
 ---

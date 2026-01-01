@@ -18,25 +18,93 @@ This reference documents CommerceOS API query operators.
 ### Filtering
 - `~where(predicates)` - Filter by predicates.
   - Predicate operators: `=`, `!=`, `>`, `<`, `>=`, `<=`, `=~` (includes), `!~` (not includes)
-  - Truthy/falsy: `field` / `!field`
-  - Predicate separators: `,` or `&` within `~where(...)`
+  - Truthy/falsy: `field` (truthy check) / `!field` (falsy check)
+  - Predicate separators: `,` or `&` within `~where(...)` - both are AND
+  - Multiple `~where` clauses: Each additional `~where` adds more AND conditions (they combine as AND)
+  - **Value parsing rules:**
+    - `null` and `undefined` are parsed as their literal values
+    - `true` and `false` are parsed as booleans
+    - Numbers (including decimals and negative) are parsed numerically
+    - ISO 8601 dates (e.g., `2024-12-20T10:00:00Z`) are parsed as Date objects
+    - Empty strings: use `field=` (nothing after `=`) to match empty string
+    - Nested paths work as keys: `~where(addresses/main/countryCode=SE)`
   - Date coercion: Datetime values on either side are compared via `.getTime()`
+
+**Filtering Examples:**
+
+```bash
+# Simple equality
+GET /products~where(status=Active)
+
+# Not equals
+GET /products~where(status!=Discontinued)
+
+# Includes (contains in array or string)
+GET /products~where(gtin=~7312345)
+
+# Truthy check (field exists and is truthy)
+GET /products~where(hidden)
+
+# Falsy check (field is null/undefined/false/empty)
+GET /products~where(!hidden)
+
+# Nested path filtering
+GET /people~where(addresses/main/countryCode=SE)
+
+# Multiple conditions (AND)
+GET /products~where(status=Active,hidden=false)
+
+# Chained where clauses (also AND)
+GET /products~where(status=Active)~where(hidden=false)
+```
 
 ### Ordering & Pagination
 - `~orderBy(field)` or `~orderBy(field:desc)` - Order objects by selector value.
+- `~orderBy(field1,field2:desc)` - Multi-field ordering: sorts by first field, then by second for ties.
 - `~order` / `~order(desc)` - Order primitive streams in ascending/descending order.
 - `~take(N)` - Take first N items.
 - `~skip(N)` - Skip first N items.
-- `~first` - Return first item (reducer).
-- `~last` - Return last item (reducer).
-- `~count` - Return item count as number (reducer).
+- `~first` - Return first item (reducer). Returns `null` if collection is empty.
+- `~last` - Return last item (reducer). Returns `null` if collection is empty.
+- `~count` - Return item count as number (reducer). Returns `0` for empty collections.
+
+**Ordering Examples:**
+
+```bash
+# Ascending order (default)
+GET /products~orderBy(name)
+
+# Descending order
+GET /products~orderBy(name:desc)
+
+# Multi-field ordering (sort by status, then by name within each status)
+GET /products~orderBy(status,name)
+
+# Order by nested field
+GET /trade-orders~orderBy(customer/name)
+
+# Pagination: skip 20, take 10
+GET /products~skip(20)~take(10)
+```
 
 ### Distinct
-- `~distinct` - Deduplicate streams by value identity. Works on primitives and objects.
+- `~distinct` - Deduplicate streams by value identity. Works on primitives (strings, numbers). For objects, use `~distinctBy`.
 - `~distinctBy(selector)` - Deduplicate objects by selector value. Evaluates selector per item, drops subsequent duplicates.
 
+**Distinct Examples:**
+
+```bash
+# Deduplicate objects by a field
+GET /products~distinctBy(status)
+
+# Deduplicate objects by a nested field
+GET /trade-orders~distinctBy(customer/identifiers/key)
+```
+
 ### Transformation
-- `~map(selectorOrMappedType)` - Map fields via inline selector OR apply a registered mapped type.
+- `~map(mappedTypeName)` - Apply a registered mapped type by name.
+  - **Mapped type lookup:** `~map(com.example.typeName)` looks up a mapped type with that exact name in `/mapped-types`. The name must match the `mappedTypeName` identifier.
+  - **Field projection:** Use `~just(...)` for simple field selection, or create a mapped type when you need reshaping.
 - `~flat` - Flatten nested arrays one level deep.
 - `~entries` - Convert object to `{index, key, value}[]` entries (excludes `@type`).
 - `~array` - Wrap single item in an array.
@@ -66,12 +134,70 @@ This reference documents CommerceOS API query operators.
 
 ---
 
+## Query Parameter Equivalents
+
+Standard query parameters are translated to operators:
+
+| Query Parameter | Operator Equivalent | Example |
+|-----------------|---------------------|---------|
+| `limit=N` | `~take(N)` | `?limit=10` → `~take(10)` |
+| `offset=N` | `~skip(N)` | `?offset=20` → `~skip(20)` |
+| `fields=a,b` | `~just(a,b)` + `~simpleJust(a,b)` | `?fields=prices,categories` → `~just(prices,categories)~simpleJust(prices,categories)` |
+| `fields=all` | `~withAll` | `?fields=all` → `~withAll` |
+| `orderby=field` | `~orderBy(field)` | `?orderby=name` → `~orderBy(name)` |
+| `orderby=field:desc` | `~orderBy(field:desc)` | `?orderby=name:desc` → `~orderBy(name:desc)` |
+| `format=json` | Accept: application/json | Content type selection |
+| `format=ndjson` | Accept: application/x-ndjson | Streaming output |
+| `format=csv` | Accept: text/csv | Tabular export |
+| `format=txt` | Accept: text/plain | Plain text output |
+| `format=html` | Accept: text/html | HTML-wrapped output |
+
+**Fields edge cases:** `fields=none` maps to `~just()` with empty args. `fields=all,extra` emits `~withAll` and `~with(extra)`. `fields=default` is a no-op.
+
+> **Rule: Choose one query layer per request**
+>
+> Use either standard query parameters (`?limit=…&orderby=…`) **or** `~` operators (`~take(…)~orderBy(…)`) in a single request. Do not combine them. Mixed requests like `GET /products~orderBy(name)?limit=10` can produce unexpected results. Pick one layer and keep the request consistent.
+
+**Examples:**
+
+```bash
+# Preferred: query params only
+GET /products?orderby=name&limit=10
+
+# Preferred: operators only
+GET /products~orderBy(name)~take(10)
+```
+
+**Multiple `where` clauses:** Each non-reserved query parameter becomes a `~where` clause. Repeating the same key (e.g., `?status=Active&status=Pending`) produces multiple `~where` clauses that combine as AND.
+
+---
+
+## Operator Application Order
+
+Path operators run left-to-right in the order they appear in the URL. Query parameters are translated into operators in a fixed sequence:
+
+1. `format` (content type selection)
+2. `fields` / `~with` / `~withAll` (field expansion)
+3. `~where` (filtering)
+4. `~skip` (offset)
+5. `~take` (limit)
+6. `~orderBy` (sorting)
+7. `~simpleJust` (final projection)
+
+Path operators execute left-to-right, so ordering matters:
+
+- `GET /products~orderBy(name)~take(10)` sorts then limits.
+- `GET /products~take(10)~orderBy(name)` limits then sorts (only the first 10 items are sorted).
+- Choose one query layer per request; see the "Rule: Choose one query layer per request" callout above.
+
+---
+
 ## Evaluation Notes
 
 - Operators chain left-to-right over the data stream.
 - `~where`, `~orderBy`, `~distinctBy`, `~with`, `~just` evaluate selectors (same selector language as mapped types).
-- `~map` with a mapped type name looks up the type by name and strips `@type`.
-- `~map` with `@merge` returns a single merged object instead of a collection.
+- `~map` resolves a mapped type by name and strips `@type` annotations from output.
+- `~map` with `@merge`: When a mapped type contains `"@merge": true`, mapping a collection returns a **single-element array** containing the merged object (not a raw object). This is used when the mapping references the whole collection via `$prior`.
 - Comparisons in `~where` and `~orderBy` use numeric comparison for numeric values.
 
 ---

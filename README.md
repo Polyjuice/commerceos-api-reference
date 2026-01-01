@@ -129,6 +129,9 @@ PUT /v1/products
 ## Pitfalls
 
 - Sync webhook `in` requests only use `url`; `method`, `headers`, and `body` are ignored, and `out.body` is ignored because sync webhooks always send the mapped item JSON.
+- `~map` only accepts mapped type names, not inline selectors like `~map(name)`. Use `~just(...)` for simple projections or define a mapped type.
+- Query parameters are normalized into a fixed operator order; `limit/offset` are applied before `orderby`, so prefer path operators (`~orderBy(...)~take(...)`) if ordering matters.
+- `fields=a,b` uses projection (`~just`/`~simpleJust`) unless `fields=all/none/default`; use `~with(...)` when you need expansion semantics.
 
 ---
 

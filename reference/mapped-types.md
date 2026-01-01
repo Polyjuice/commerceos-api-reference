@@ -35,7 +35,7 @@ This document covers the storage model, lookup rules, and the selector language 
 **Single vs collection**
 - Mapping a **single item** returns one mapped object.
 - Mapping a **collection** returns an array of mapped objects.
-- If the mapped type body contains `@merge`, the collection mapping returns only the first mapped object. This is used when the mapping references the whole collection via `$prior`.
+- If the mapped type body contains `"@merge": true`, the collection mapping returns a **single-element array** containing the merged object (not a raw object). This maintains consistent array response types. Used when the mapping references the whole collection via `$prior`.
 
 ---
 
@@ -70,6 +70,8 @@ Use ` ?? ` (note required spaces) to provide a fallback:
 
 Use `cond ? trueExpr : falseExpr` with paren awareness:
 - `"paymentType ? paymentType : 'unknown'"`
+
+**Important:** The condition is an **existence check**, not a value comparison. It tests whether the selector resolves to a truthy value (exists and is not null/undefined/empty). To compare against specific values, use `~where()` filtering before mapping.
 
 ### 5) Concatenation
 

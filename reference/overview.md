@@ -142,10 +142,11 @@ Most resources return essential fields only. Non-essential fields are accessed v
 - `name`
 - `@type` (for polymorphic types)
 - `status` (for products)
+- `gtin` (for products)
 
 **Non-essential fields** (require `~with`):
 - Relations: `categories`, `prices`, `supplierAgent`, `customerAgent`
-- Extended properties: `hidden`, `plu`, `gtin`, `vatId`
+- Extended properties: `hidden`, `plu`, `vatId`
 
 ```bash
 # Include specific non-essential fields
@@ -163,8 +164,10 @@ The API supports query operators that modify responses:
 - `~where(condition)` - Filter collections
 - `~take(N)` and `~skip(N)` - Pagination
 - `~orderBy(field)` - Sorting
-- `~map(name)` - Apply mapped type transformation
+- `~map(mappedTypeName)` - Apply mapped type transformation
 - `~with(field)` - Expand additional fields
+
+> **Important:** Do not mix query parameters (`?limit=…`) and `~` operators (`~take(…)`) in the same request. Choose one style per request. See [`operators.md`](operators.md) for details.
 
 See [`operators.md`](operators.md) for the full operator reference.
 
@@ -184,8 +187,112 @@ See [`operators.md`](operators.md) for the full operator reference.
 
 ## Content Types
 
-| Format | Content-Type | Use Case |
-|--------|--------------|----------|
-| JSON | `application/json` | Default, buffered response |
-| NDJSON | `application/x-ndjson` | Streaming large datasets |
-| CSV | `text/csv` | Tabular export |
+### Response Formats (Accept Header)
+
+| Accept Header | Shorthand | Use Case |
+|---------------|-----------|----------|
+| `application/json` | `json` | Default, buffered response |
+| `application/x-ndjson` | `ndjson` | Streaming, line-delimited |
+| `text/csv` | - | Tabular export |
+| `text/plain` | - | Plain text output |
+| `text/html` | - | HTML-wrapped output |
+
+**Default behavior:** If no Accept header is provided or `*/*` is used, `application/json` is returned.
+
+**Shorthand values:** The Accept header supports shorthand values like `Accept: json` or `Accept: ndjson`.
+
+**Content-Type defaults for input:** When sending data via POST/PUT/PATCH, if no Content-Type header is provided, `application/json` is assumed.
+
+### Request Content-Type Defaults
+
+When sending data:
+- If no Content-Type header is provided, `application/json` is assumed
+- For NDJSON import, explicitly set `Content-Type: application/x-ndjson`
+- NDJSON accepts trailing newlines on import
+- CSV import parses header row and supports quoted values
+
+### JSON Serializer Parameters
+
+The JSON content type accepts parameters to control output:
+
+```bash
+# Skip null fields (enabled by default)
+Accept: application/json; skipNulls=true
+
+# Include null fields (useful with ~with to show explicitly null values)
+Accept: application/json; skipNulls=false
+
+# Strip @type annotations
+Accept: application/json; skipTypes=true
+
+# Serialize numbers as strings (for precision)
+Accept: application/json; numberHandling=string
+
+# Streaming mode - fast first byte (items emitted as available)
+Accept: application/json; stream=true
+```
+
+**`skipNulls` + `~with` interaction:** When `skipNulls=true` (default), null fields are omitted. However, if a field is explicitly requested via `~with()`, a null value is included to indicate the field exists but is empty.
+
+### Format-Specific Behaviors
+
+**JSON (`application/json`):**
+- Empty collections return `[]`
+- `~count` returns a number
+- POST accepts arrays for bulk creation
+
+**NDJSON (`application/x-ndjson`):**
+- One JSON object per line
+- Empty collections yield empty output (no lines)
+- Trailing newlines are accepted on import
+
+**CSV (`text/csv`):**
+- Header row derived from first item's fields
+- Commas, quotes, and newlines in values are escaped
+- Empty collections yield empty output (no header)
+- Single item yields header + 1 data row
+
+**text/plain and text/html:**
+- Require string output; non-string values cause error
+- Use `~toString` to convert numeric results: `/products~count~toString`
+- HTML wraps non-HTML string content in basic HTML structure
+
+### Known Limitations
+
+- **File extension content negotiation not supported:** URLs like `/products.json` or `/products.csv` do not work. The extension is treated as part of the resource identifier. Use the Accept header instead.
+- **Unknown Accept header parameters:** Unknown parameters in the Accept header (e.g., `Accept: application/json; unknownParam=foo`) should be ignored while still applying known parameters. However, this is a known issue - some unknown parameters may cause errors. When in doubt, use only the documented parameters: `skipNulls`, `skipTypes`, `numberHandling`, and `stream`.
+
+### Request Content Types
+
+| Content-Type | Use Case |
+|--------------|----------|
+| `application/json` | Standard JSON body |
+| `application/x-ndjson` | Bulk import (one object per line) |
+| `text/csv` | Tabular import (header + rows) |
+
+---
+
+## Transaction and Buffering Semantics
+
+All collection responses go through two phases: **buffering** (database read) and **serialization** (output writing).
+
+### Phase 1: Buffering (Transaction-Bounded)
+
+All items are read from the database within a single transaction before any output is written. This guarantees:
+
+- **Snapshot consistency:** The entire result set reflects one point-in-time view of the data
+- **Atomicity:** Either all items are returned, or none (on error)
+- **No partial results:** Errors during buffering return no data, preventing corrupted or incomplete arrays
+
+### Phase 2: Serialization (Format-Dependent)
+
+After buffering completes, items are serialized according to the requested output format:
+
+| Format | Serialization Behavior | First Byte Timing |
+|--------|------------------------|-------------------|
+| `application/json` | Buffered - full array built before output | After all items read + serialized |
+| `application/json; stream=true` | Streaming - items emitted incrementally | After all items read |
+| `application/x-ndjson` | Streaming - one line per item | After all items read |
+| `text/csv` | Streaming - one row per item | After all items read |
+
+**Key point:** Even streaming formats buffer all items during the database read phase. The "streaming" behavior applies only to the serialization phase, providing faster first-byte response times for large result sets while maintaining transaction consistency.
