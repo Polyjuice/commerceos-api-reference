@@ -22,7 +22,7 @@ CommerceOS supports two distinct query layers:
 
 **Why two layers?** Query parameters are familiar and work well for simple requests. Operators are chainable and expressive for complex queries like multi-field filtering, nested expansions, and mapped type transformations.
 
-**Evaluation order:** Path operators execute left-to-right as they appear in the URL. Query parameters are translated into a fixed operator order (see [Operator Application Order](#operator-application-order) below). There is no global fixed order for path operators beyond their URL order.
+**Evaluation order:** Operators are evaluated by the engine in a fixed sequence regardless of URL position. Query parameters are translated into that same sequence (see [Operator Application Order](#operator-application-order) below).
 
 ### Operator Recipes
 
@@ -215,7 +215,7 @@ GET /products~orderBy(name)~take(10)
 
 ## Operator Application Order
 
-Query parameters are translated into operators in a fixed sequence. Path operators run left-to-right in the order they appear in the URL.
+Operators are evaluated in a fixed sequence, regardless of whether they come from query parameters or `~` operators in the path.
 
 1. `format` (content type selection)
 2. `fields` / `~with` / `~withAll` (field expansion)
@@ -225,17 +225,13 @@ Query parameters are translated into operators in a fixed sequence. Path operato
 6. `~orderBy` (sorting)
 7. `~simpleJust` (final projection)
 
-Path operators execute left-to-right, so ordering matters:
-
-- `GET /products~orderBy(name)~take(10)` sorts then limits.
-- `GET /products~take(10)~orderBy(name)` limits then sorts (only the first 10 items are sorted).
-- Choose one query layer per request; see the "Rule: Choose one query layer per request" callout above.
+URL order does not change evaluation. The engine applies the fixed order above even if the operators appear in a different sequence in the path.
 
 ---
 
 ## Evaluation Notes
 
-- Path operators chain left-to-right over the data stream.
+- Operator execution follows the fixed order listed above; URL order does not change results.
 - `~where`, `~orderBy`, `~distinctBy`, `~with`, `~just` evaluate selectors (same selector language as mapped types).
 - `~map` resolves a mapped type by name and strips `@type` annotations from output.
 - `~map` with `@merge`: When a mapped type contains `"@merge": true`, mapping a collection returns a **single-element array** containing the merged object (not a raw object). This is used when the mapping references the whole collection via `$prior`.
