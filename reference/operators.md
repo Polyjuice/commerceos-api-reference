@@ -6,6 +6,47 @@ This reference documents CommerceOS API query operators.
 
 ---
 
+## Operator Syntax vs Query Parameters
+
+CommerceOS supports two distinct query layers:
+
+- **Basic layer (query params):** `/v1/products?status=Active&limit=10`
+- **Advanced layer (operators):** `/v1/products~where(status=Active)~take(10)`
+
+**Do not mix** query parameters and operators in the same request. Pick one layer per request and keep it consistent.
+
+| Layer | Filtering | Pagination | Sorting | Expansion |
+|-------|-----------|------------|---------|-----------|
+| Query params | `?status=Active` | `?limit=10&offset=20` | `?orderby=name` | `?fields=all` |
+| Operators | `~where(status=Active)` | `~take(10)~skip(20)` | `~orderBy(name)` | `~withAll` |
+
+**Why two layers?** Query parameters are familiar and work well for simple requests. Operators are chainable and expressive for complex queries like multi-field filtering, nested expansions, and mapped type transformations.
+
+**Evaluation order:** Operators are evaluated by the engine in a fixed order (see [Operator Application Order](#operator-application-order) below), not simply left-to-right as they appear in the URL.
+
+### Operator Recipes
+
+Common operator patterns for everyday tasks:
+
+```bash
+# Paginated list (page 3, 20 items per page)
+GET /v1/products~take(20)~skip(40)
+
+# Filtered search
+GET /v1/products~where(status=Active,categoryKey=electronics)
+
+# Expanded view with pagination
+GET /v1/products~with(prices,categories)~take(10)
+
+# Sorted and filtered
+GET /v1/products~where(status=Active)~orderBy(name)~take(20)
+
+# Transformed export
+GET /v1/products~map(com.example.export-format)~take(100)
+```
+
+---
+
 ## Operator Categories
 
 ### Projection

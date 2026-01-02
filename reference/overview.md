@@ -4,6 +4,24 @@ This document summarizes how CommerceOS API resources are structured and accesse
 
 ---
 
+## About the API Reference
+
+This reference explains how to integrate with CommerceOS at a practical level. It focuses on workflows, operator syntax, and real examples.
+
+**Audience:** Developers and AI agents building integrations with CommerceOS.
+
+**Scope:** This reference covers HTTP usage, authentication, query operators, content negotiation, and common patterns. For endpoint schemas and model definitions specific to your deployment, use your tenant's `/api-docs`.
+
+**Navigation ladder:**
+1. **Start here** - This overview for API basics and authentication
+2. **Learn operators** - [`operators.md`](operators.md) for query syntax and recipes
+3. **See examples** - [`../guide/examples.md`](../guide/examples.md) for practical curl examples
+4. **Dive deeper** - [`mapped-types.md`](mapped-types.md), [`sync-webhooks.md`](sync-webhooks.md), and other reference docs
+
+> **Tip:** Your tenant's `/api-docs` is authoritative for endpoints and schemas. This reference complements it with patterns and examples.
+
+---
+
 ## API Basics
 
 The CommerceOS API is a RESTful Web API using:
