@@ -22,7 +22,7 @@ CommerceOS supports two distinct query layers:
 
 **Why two layers?** Query parameters are familiar and work well for simple requests. Operators are chainable and expressive for complex queries like multi-field filtering, nested expansions, and mapped type transformations.
 
-**Evaluation order:** Operators are evaluated by the engine in a fixed order (see [Operator Application Order](#operator-application-order) below), not simply left-to-right as they appear in the URL.
+**Evaluation order:** Path operators execute left-to-right as they appear in the URL. Query parameters are translated into a fixed operator order (see [Operator Application Order](#operator-application-order) below). There is no global fixed order for path operators beyond their URL order.
 
 ### Operator Recipes
 
@@ -215,7 +215,7 @@ GET /products~orderBy(name)~take(10)
 
 ## Operator Application Order
 
-Path operators run left-to-right in the order they appear in the URL. Query parameters are translated into operators in a fixed sequence:
+Query parameters are translated into operators in a fixed sequence. Path operators run left-to-right in the order they appear in the URL.
 
 1. `format` (content type selection)
 2. `fields` / `~with` / `~withAll` (field expansion)
@@ -235,7 +235,7 @@ Path operators execute left-to-right, so ordering matters:
 
 ## Evaluation Notes
 
-- Operators chain left-to-right over the data stream.
+- Path operators chain left-to-right over the data stream.
 - `~where`, `~orderBy`, `~distinctBy`, `~with`, `~just` evaluate selectors (same selector language as mapped types).
 - `~map` resolves a mapped type by name and strips `@type` annotations from output.
 - `~map` with `@merge`: When a mapped type contains `"@merge": true`, mapping a collection returns a **single-element array** containing the merged object (not a raw object). This is used when the mapping references the whole collection via `$prior`.

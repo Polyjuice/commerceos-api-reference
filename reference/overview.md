@@ -22,6 +22,25 @@ This reference explains how to integrate with CommerceOS at a practical level. I
 
 ---
 
+## Resource Groups & Examples
+
+The API organizes resources into logical groups. Each group maps to OAuth2 scopes and has practical examples.
+
+| Tag | Scopes (informational) | Key Resources | Examples |
+|-----|------------------------|---------------|----------|
+| Organization | `org:read` | `/agents`, `/people`, `/companies`, `/stores` | [Organization examples](../guide/examples.md#organization-examples) |
+| Products | `products:read`, `products:write` | `/products`, `/product-categories`, `/product-families` | [Products examples](../guide/examples.md#products-examples) |
+| Pricing | `prices:read`, `prices:write` | `/prices`, `/currencies`, `/vat-codes` | [Pricing examples](../guide/examples.md#pricing-examples) |
+| Orders | `orders.sales:write`, `orders.payments:write` | `/trade-orders`, `/payment-orders` | [Orders examples](../guide/examples.md#orders-examples) |
+| Inventory | `stock:read`, `stock:write` | `/stock-places`, `/stock-transactions` | [Inventory examples](../guide/examples.md#inventory-examples) |
+| POS | `pos:read`, `pos:write`, `receipts:write` | `/pos-terminals`, `/receipts`, `/payment-methods` | [POS examples](../guide/examples.md#pos-examples) |
+| Users | `users:read` | `/users`, `/users/{id}/roleAssignments` | [Users examples](../guide/examples.md#users-examples) |
+| Configuration | `config` | `/config`, `/mapped-types`, `/sync-webhooks` | [Configuration examples](../guide/examples.md#configuration-examples) |
+
+> **Note:** The OAuth2 scopes listed above are informational. The deployed API uses coarse scopes (`read:api`, `write:api`). Fine-grained scopes may be introduced in the future.
+
+---
+
 ## API Basics
 
 The CommerceOS API is a RESTful Web API using:

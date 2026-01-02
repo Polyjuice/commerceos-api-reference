@@ -9,6 +9,25 @@ Comprehensive curl examples demonstrating the full capabilities of the CommerceO
 
 ---
 
+## Examples Index
+
+Quick links to examples by resource group. Use these anchors for stable linking.
+
+| Tag | Examples | Key Operations |
+|-----|----------|----------------|
+| [Organization](#organization-examples) | Agents, People, Companies, Stores | CRUD, relations, addresses |
+| [Products](#products-examples) | Products, Categories, Families, Groups | CRUD, GTIN/PLU lookup, labels, images |
+| [Pricing](#pricing-examples) | Prices, Currencies, VAT Codes | Price creation, validity periods, buyer restrictions |
+| [Orders](#orders-examples) | Trade Orders, Trade Relationships, Shipments, Payments | Order lifecycle, fulfillment, payments |
+| [Inventory](#inventory-examples) | Stock Places, Stock Entries, Transactions | Stock queries, adjustments, reservations |
+| [POS](#pos-examples) | Terminals, Receipts, Payment Methods | Receipt creation, payment processing |
+| [Users](#users-examples) | Users, Authentication, Roles | User management, role assignments |
+| [Configuration](#configuration-examples) | Config, Reference Data, Integrations | System settings, mapped types, webhooks |
+| [Operators](#operators-examples) | Query operators | Filtering, pagination, expansion, projection |
+| [Advanced](#advanced-examples) | Complex queries | Chaining, bulk operations, exports |
+
+---
+
 ## Table of Contents
 
 1. [Core Agents & Organizations](#1-core-agents--organizations)
@@ -24,6 +43,8 @@ Comprehensive curl examples demonstrating the full capabilities of the CommerceO
 11. [SQL Export Serialization](#11-sql-export-serialization)
 
 ---
+
+<a id="organization-examples"></a>
 
 ## 1. Core Agents & Organizations
 
@@ -199,6 +220,8 @@ curl -X GET -u ":banana" "localhost:5000/api/v1/agents/com.heads.seedID=ourcompa
 ```
 
 ---
+
+<a id="products-examples"></a>
 
 ## 2. Products & Catalog
 
@@ -451,6 +474,8 @@ curl -X POST -u ":banana" "localhost:5000/api/v1/products/com.myapp.sku=SKU-001/
 
 ---
 
+<a id="pricing-examples"></a>
+
 ## 3. Prices & Pricing
 
 ### 3.1 Prices
@@ -554,6 +579,8 @@ curl -X POST -u ":banana" "localhost:5000/api/v1/vat-codes" \
 ```
 
 ---
+
+<a id="orders-examples"></a>
 
 ## 4. Trade Orders & Fulfillment
 
@@ -817,6 +844,8 @@ curl -X POST -u ":banana" "localhost:5000/api/v1/trade-restriction-reasons" \
 
 ---
 
+<a id="inventory-examples"></a>
+
 ## 5. Stock & Inventory
 
 ### 5.1 Stock Places
@@ -920,6 +949,8 @@ curl -X POST -u ":banana" "localhost:5000/api/v1/stock-resets" \
 ```
 
 ---
+
+<a id="pos-examples"></a>
 
 ## 6. Point of Sale (POS)
 
@@ -1170,6 +1201,8 @@ curl -X POST -u ":banana" "localhost:5000/api/v1/payment-terminals" \
 
 ---
 
+<a id="users-examples"></a>
+
 ## 7. Users & Authentication
 
 ### 7.1 Users
@@ -1267,6 +1300,8 @@ curl -X DELETE -u ":banana" "localhost:5000/api/v1/users/com.heads.seedID=admin/
 ```
 
 ---
+
+<a id="configuration-examples"></a>
 
 ## 8. Configuration & Reference Data
 
@@ -1618,6 +1653,8 @@ curl -X PATCH -u ":banana" "localhost:5000/api/v1/epi-configurations/com.myapp.c
 
 ---
 
+<a id="operators-examples"></a>
+
 ## 9. Query Operators Reference
 
 ### 9.1 Collection Operators
@@ -1722,6 +1759,8 @@ curl -X GET -u ":banana" "localhost:5000/api/v1/agents/com.heads.seedID=ourcompa
 ```
 
 ---
+
+<a id="advanced-examples"></a>
 
 ## 10. Advanced Query Patterns
 
