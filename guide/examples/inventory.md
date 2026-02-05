@@ -9,6 +9,94 @@ Curl examples for stock places, stock adjustments, and stock resets.
 
 ---
 
+## Quick Start: Recommended Setup Order
+
+1. **Create stock place(s)** without specifying an owner
+2. **Add to agent's stockRoots** via `POST /v1/companies/{id}/stockRoots` or `POST /v1/stores/{id}/stockRoots`
+3. **Create adjustment reasons** for tracking why inventory changes
+4. **Create stock adjustments** to record inventory changes
+
+```bash
+# Step 1: Create stock place (owner is optional)
+curl -X POST -u ":banana" "localhost:5000/api/v1/stock-places" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.myapp.stockPlaceId": "WH-001"},
+    "name": "Main Warehouse"
+  }'
+
+# Step 2: Add to agent's stockRoots (preferred approach)
+curl -X POST -u ":banana" "localhost:5000/api/v1/companies/com.heads.seedID=ourcompany/stockRoots" \
+  -H "Content-Type: application/json" \
+  -d '{"identifiers": {"com.myapp.stockPlaceId": "WH-001"}}'
+
+# Step 3: Create adjustment reason
+curl -X POST -u ":banana" "localhost:5000/api/v1/stock-adjustment-reasons" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.myapp.reasonId": "RESTOCK"},
+    "name": "Restock",
+    "active": true,
+    "direction": "Increase"
+  }'
+
+# Step 4: Create stock adjustment (owner inferred from stock root)
+curl -X POST -u ":banana" "localhost:5000/api/v1/stock-adjustments" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.myapp.adjustmentId": "ADJ-001"},
+    "timestamp": "2024-03-15T10:30:00Z",
+    "items": [
+      {
+        "product": {"identifiers": {"com.myapp.sku": "SKU-001"}},
+        "place": {"identifiers": {"com.myapp.stockPlaceId": "WH-001"}},
+        "reason": {"identifiers": {"com.myapp.reasonId": "RESTOCK"}},
+        "quantity": 100
+      }
+    ]
+  }'
+```
+
+---
+
+## Stock Place Ownership Model
+
+> **Important: How `owner` works on stock places**
+>
+> The `owner` field on a stock place is a **computed property**, not a stored field. It's derived from `StockOwner.forNearestRoot(place)` — finding the agent whose `stockRoots` collection includes this place (or a parent).
+>
+> **When you set `owner` on a stock place:**
+> - The system removes the place from the old owner's `stockRoots` (if any)
+> - The system adds the place to the new owner's `stockRoots`
+>
+> **The canonical relationship is:** `agent.stockRoots → stock place`, not `stock place.owner → agent`.
+>
+> **Preferred approach:** Create the stock place without `owner`, then add it to the agent's `stockRoots` collection:
+> ```bash
+> POST /v1/companies/{id}/stockRoots
+> {"identifiers": {"com.myapp.stockPlaceId": "WH-001"}}
+> ```
+>
+> **Also works (shorthand):** Set `owner` directly on the stock place — this manipulates `stockRoots` behind the scenes:
+> ```bash
+> POST /v1/stock-places
+> {"identifiers": {...}, "name": "...", "owner": {"identifiers": {"com.example.companyId": "..."}}}
+> ```
+
+### stockRoots vs assortmentRoots
+
+These are separate concepts that are often confused:
+
+| Member | Purpose | What it contains |
+|--------|---------|------------------|
+| `stockRoots` | Defines where an agent's **inventory** is managed | Stock places (warehouses, stockrooms) |
+| `assortmentRoots` | Defines an agent's **product catalog** | Product nodes (categories, groups) |
+
+- Use `stockRoots` for stock adjustments and inventory tracking
+- Use `assortmentRoots` for product assortment and catalog visibility
+
+---
+
 ## Stock Places
 
 ```bash
@@ -27,12 +115,25 @@ curl -X GET -u ":banana" "localhost:5000/api/v1/stock-places/com.heads.seedID=wa
 # Get stock transactions
 curl -X GET -u ":banana" "localhost:5000/api/v1/stock-places/com.heads.seedID=warehouse1/transactions"
 
-# Create a stock place (warehouse)
+# Create a stock place (warehouse) - without owner (preferred)
 curl -X POST -u ":banana" "localhost:5000/api/v1/stock-places" \
   -H "Content-Type: application/json" \
   -d '{
     "identifiers": {"com.myapp.stockPlaceId": "WH-001"},
-    "name": "Main Warehouse",
+    "name": "Main Warehouse"
+  }'
+
+# Then add to agent's stockRoots (establishes ownership)
+curl -X POST -u ":banana" "localhost:5000/api/v1/companies/com.heads.seedID=ourcompany/stockRoots" \
+  -H "Content-Type: application/json" \
+  -d '{"identifiers": {"com.myapp.stockPlaceId": "WH-001"}}'
+
+# Alternative: Create with owner shorthand (manipulates stockRoots behind the scenes)
+curl -X POST -u ":banana" "localhost:5000/api/v1/stock-places" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifiers": {"com.myapp.stockPlaceId": "WH-002"},
+    "name": "Secondary Warehouse",
     "owner": {"identifiers": {"com.heads.seedID": "ourcompany"}}
   }'
 

@@ -89,6 +89,64 @@ Receiving          In-Stock            Reserved           Shipped
 
 ---
 
+## Stock Place Ownership Model
+
+### How `owner` Works
+
+The `owner` field on a stock place is a **computed property**, not a stored field. It is derived from `StockOwner.forNearestRoot(place)` — the system finds the agent whose `stockRoots` collection includes this place or one of its parents.
+
+**When you set `owner` on a stock place:**
+- The system removes the place from the old owner's `stockRoots` (if any)
+- The system adds the place to the new owner's `stockRoots`
+
+The canonical relationship is: **`agent.stockRoots → stock place`**, not `stock place.owner → agent`.
+
+### Recommended Setup Flow
+
+1. **Create stock place(s)** without specifying an owner
+2. **Add to agent's stockRoots** via `POST /v1/companies/{id}/stockRoots` or `POST /v1/stores/{id}/stockRoots`
+3. **Create adjustment reasons** for tracking why inventory changes
+4. **Create stock adjustments** to record inventory changes
+
+```bash
+# Step 1: Create stock place (owner is optional)
+POST /v1/stock-places
+{
+  "identifiers": {"com.example.stockPlaceId": "WH-001"},
+  "name": "Main Warehouse"
+}
+
+# Step 2: Add to agent's stockRoots (preferred approach)
+POST /v1/companies/com.example.companyId=OUR-COMPANY/stockRoots
+{"identifiers": {"com.example.stockPlaceId": "WH-001"}}
+```
+
+**Alternative (shorthand):** Set `owner` directly on the stock place — this manipulates `stockRoots` behind the scenes:
+
+```bash
+POST /v1/stock-places
+{
+  "identifiers": {"com.example.stockPlaceId": "WH-001"},
+  "name": "Main Warehouse",
+  "owner": {"identifiers": {"com.example.companyId": "OUR-COMPANY"}}
+}
+```
+
+### stockRoots vs assortmentRoots
+
+These are separate agent members that are often confused:
+
+| Member | Purpose | What it contains |
+|--------|---------|------------------|
+| `stockRoots` | Defines where an agent's **inventory** is managed (for stock adjustments/entries) | Stock places (warehouses, stockrooms) |
+| `assortmentRoots` | Defines an agent's **product catalog/assortment** | Product nodes (categories, groups) |
+
+- Use `stockRoots` for stock adjustments and inventory tracking
+- Use `assortmentRoots` for product assortment and catalog visibility
+- They are managed independently and serve different purposes
+
+---
+
 ## Stock Place Hierarchy
 
 Stock places form a hierarchy enabling granular inventory tracking:
@@ -132,10 +190,16 @@ Company Stock Roots
 |-------|------|----------|-------------|
 | `identifiers` | object | Yes | Namespaced identifiers |
 | `name` | string | Yes | Location display name |
-| `owner` | AgentRef | No | Agent owning the stock place (optional; required for stock adjustments unless owner can be inferred) |
+| `owner` | AgentRef | No | Agent owning the stock place (**computed**, not stored; see note below) |
 | `parent` | StockPlaceRef | No | Parent location in hierarchy |
 
-> **Note:** Stock places can be created without an `owner`. Stock adjustments can omit `owner` if it can be inferred from the place's stock root, but adjustments against an unowned place (or a place without a stock-root path) will fail with an error like "Cannot update stock for an unowned stock place".
+> **Note:** Stock places can be created without an `owner`. The `owner` field is a **computed property** derived from `StockOwner.forNearestRoot(place)` — it finds the agent whose `stockRoots` includes this place or a parent.
+>
+> **Setting `owner`:** When you set `owner` on a stock place, the system manipulates the agent's `stockRoots` collection (removes from old owner, adds to new owner). The canonical relationship is `agent.stockRoots → stock place`.
+>
+> **Preferred approach:** Create the stock place without `owner`, then add it to the agent's `stockRoots` via `POST /v1/companies/{id}/stockRoots` or `POST /v1/stores/{id}/stockRoots`.
+>
+> **Stock adjustments:** Adjustments can omit `owner` if it can be inferred from the place's stock root. Adjustments against an unowned place (or a place without a stock-root path) fail with "Cannot update stock for an unowned stock place".
 
 ### Stock Place Fields (Expandable)
 
@@ -212,7 +276,26 @@ Shipment orders can be created directly via `POST /v1/shipment-orders` or via th
 
 ## Creating Stock Places
 
-### Basic Stock Place
+### Recommended Approach (Preferred)
+
+Create the stock place without owner, then add it to the agent's `stockRoots`:
+
+```bash
+# Step 1: Create stock place (no owner)
+POST /v1/stock-places
+{
+  "identifiers": {"com.example.stockPlaceId": "WAREHOUSE-001"},
+  "name": "Main Warehouse"
+}
+
+# Step 2: Add to agent's stockRoots (establishes ownership)
+POST /v1/companies/com.example.companyId=OUR-COMPANY/stockRoots
+{"identifiers": {"com.example.stockPlaceId": "WAREHOUSE-001"}}
+```
+
+### Alternative: Owner Shorthand
+
+You can set `owner` directly on the stock place — this is shorthand that manipulates the agent's `stockRoots` behind the scenes:
 
 ```bash
 POST /v1/stock-places
@@ -222,65 +305,76 @@ POST /v1/stock-places
   "owner": {"identifiers": {"com.example.companyId": "OUR-COMPANY"}}
 }
 ```
+
+> **Note:** While setting `owner` directly works, it hides the true relationship. The canonical path is `agent.stockRoots → stock place`.
 
 ### Idempotent Creation (PUT)
 
 ```bash
 PUT /v1/stock-places/com.example.stockPlaceId=WAREHOUSE-001
 {
-  "name": "Main Warehouse",
-  "owner": {"identifiers": {"com.example.companyId": "OUR-COMPANY"}}
+  "name": "Main Warehouse"
 }
+
+# Then add to stockRoots
+POST /v1/companies/com.example.companyId=OUR-COMPANY/stockRoots
+{"identifiers": {"com.example.stockPlaceId": "WAREHOUSE-001"}}
 ```
 
 ### Hierarchical Stock Places
 
-Create parent first, then children:
+Create parent first, then children. Add the root to `stockRoots` — children inherit ownership through the hierarchy:
 
 ```bash
-# 1. Create warehouse (root)
+# 1. Create warehouse (root) — no owner needed
 POST /v1/stock-places
 {
   "identifiers": {"com.example.stockPlaceId": "WAREHOUSE-001"},
-  "name": "Central Warehouse",
-  "owner": {"identifiers": {"com.example.companyId": "OUR-COMPANY"}}
+  "name": "Central Warehouse"
 }
 
-# 2. Create zone within warehouse
+# 2. Add root to agent's stockRoots (establishes ownership for entire subtree)
+POST /v1/companies/com.example.companyId=OUR-COMPANY/stockRoots
+{"identifiers": {"com.example.stockPlaceId": "WAREHOUSE-001"}}
+
+# 3. Create zone within warehouse (inherits ownership from parent's stock root)
 POST /v1/stock-places
 {
   "identifiers": {"com.example.stockPlaceId": "WAREHOUSE-001-ZONE-A"},
   "name": "Zone A - Electronics",
-  "owner": {"identifiers": {"com.example.companyId": "OUR-COMPANY"}},
   "parent": {"identifiers": {"com.example.stockPlaceId": "WAREHOUSE-001"}}
 }
 
-# 3. Create shelf within zone
+# 4. Create shelf within zone (also inherits ownership)
 POST /v1/stock-places
 {
   "identifiers": {"com.example.stockPlaceId": "WAREHOUSE-001-ZONE-A-SHELF-01"},
   "name": "Shelf A-01",
-  "owner": {"identifiers": {"com.example.companyId": "OUR-COMPANY"}},
   "parent": {"identifiers": {"com.example.stockPlaceId": "WAREHOUSE-001-ZONE-A"}}
 }
 ```
 
+> **Note:** When you add a parent stock place to an agent's `stockRoots`, all child places inherit ownership via `StockOwner.forNearestRoot()`. You don't need to set `owner` on each child — the system walks up the parent chain to find the nearest stock root.
+
 ### Store Stock Locations
 
 ```bash
-# Store with backroom and sales floor
+# 1. Create store root stock place
 POST /v1/stock-places
 {
   "identifiers": {"com.example.stockPlaceId": "STORE-NORTH-MAIN"},
-  "name": "Store North",
-  "owner": {"identifiers": {"com.example.storeId": "STORE-NORTH"}}
+  "name": "Store North"
 }
 
+# 2. Add root to store's stockRoots
+POST /v1/stores/com.example.storeId=STORE-NORTH/stockRoots
+{"identifiers": {"com.example.stockPlaceId": "STORE-NORTH-MAIN"}}
+
+# 3. Create child locations (inherit ownership from parent's stock root)
 POST /v1/stock-places
 {
   "identifiers": {"com.example.stockPlaceId": "STORE-NORTH-BACKROOM"},
   "name": "Backroom",
-  "owner": {"identifiers": {"com.example.storeId": "STORE-NORTH"}},
   "parent": {"identifiers": {"com.example.stockPlaceId": "STORE-NORTH-MAIN"}}
 }
 
@@ -288,7 +382,6 @@ POST /v1/stock-places
 {
   "identifiers": {"com.example.stockPlaceId": "STORE-NORTH-SALESFLOOR"},
   "name": "Sales Floor",
-  "owner": {"identifiers": {"com.example.storeId": "STORE-NORTH"}},
   "parent": {"identifiers": {"com.example.stockPlaceId": "STORE-NORTH-MAIN"}}
 }
 ```
@@ -1107,47 +1200,46 @@ POST /v1/shipment-orders/@find
 
 **Goal:** Establish location hierarchy.
 
-1. **Create warehouse structure:**
+1. **Create warehouse structure (without owner):**
    ```bash
    # Root warehouse
    PUT /v1/stock-places/com.example.stockPlaceId=WAREHOUSE-CENTRAL
    {
-     "name": "Central Warehouse",
-     "owner": {"identifiers": {"com.example.companyId": "OUR-COMPANY"}}
+     "name": "Central Warehouse"
    }
 
-   # Zones
+   # Zones (children inherit ownership from parent's stock root)
    PUT /v1/stock-places/com.example.stockPlaceId=WH-CENTRAL-RECEIVING
    {
      "name": "Receiving Dock",
-     "owner": {"identifiers": {"com.example.companyId": "OUR-COMPANY"}},
      "parent": {"identifiers": {"com.example.stockPlaceId": "WAREHOUSE-CENTRAL"}}
    }
 
    PUT /v1/stock-places/com.example.stockPlaceId=WH-CENTRAL-STORAGE
    {
      "name": "Main Storage",
-     "owner": {"identifiers": {"com.example.companyId": "OUR-COMPANY"}},
      "parent": {"identifiers": {"com.example.stockPlaceId": "WAREHOUSE-CENTRAL"}}
    }
    ```
 
-2. **Create store locations:**
-   ```bash
-   PUT /v1/stock-places/com.example.stockPlaceId=STORE-001-MAIN
-   {
-     "name": "Store Stockholm",
-     "owner": {"identifiers": {"com.example.storeId": "STORE-001"}}
-   }
-   ```
-
-3. **Link stock roots to agents:**
+2. **Link stock roots to agents (establishes ownership):**
    ```bash
    POST /v1/companies/com.example.companyId=OUR-COMPANY/stockRoots
    {"identifiers": {"com.example.stockPlaceId": "WAREHOUSE-CENTRAL"}}
    ```
 
-**Checkpoint:** Location hierarchy visible and linked to agents.
+3. **Create store locations:**
+   ```bash
+   PUT /v1/stock-places/com.example.stockPlaceId=STORE-001-MAIN
+   {
+     "name": "Store Stockholm"
+   }
+
+   POST /v1/stores/com.example.storeId=STORE-001/stockRoots
+   {"identifiers": {"com.example.stockPlaceId": "STORE-001-MAIN"}}
+   ```
+
+**Checkpoint:** Location hierarchy visible and linked to agents via stockRoots.
 
 ### Phase 2: Adjustment Reasons
 
@@ -1220,11 +1312,10 @@ POST /v1/shipment-orders/@find
 
 1. **Receiving workflow:**
    ```bash
-   # Record goods receipt
+   # Record goods receipt (owner inferred from stock place's stock root)
    POST /v1/stock-adjustments
    {
      "timestamp": "2024-12-15T09:00:00Z",
-     "owner": {"identifiers": {"com.example.companyId": "OUR-COMPANY"}},
      "items": [
        {
          "product": {"identifiers": {"com.example.sku": "PHONE-001"}},
@@ -1236,12 +1327,13 @@ POST /v1/shipment-orders/@find
    }
    ```
 
+   > **Note:** `owner` is optional when the stock place is owned via `stockRoots`. The system infers the owner from `StockOwner.forNearestRoot(place)`.
+
 2. **Transfer to storage:**
    ```bash
    POST /v1/stock-adjustments
    {
      "timestamp": "2024-12-15T10:00:00Z",
-     "owner": {"identifiers": {"com.example.companyId": "OUR-COMPANY"}},
      "items": [
        {
          "product": {"identifiers": {"com.example.sku": "PHONE-001"}},
@@ -1306,14 +1398,16 @@ This case study demonstrates complete fulfillment flow from receiving goods thro
 - Fulfill customer order
 - Ship to customer
 
+> **Prerequisite:** Stock places `WH-RECEIVING` and `WH-STORAGE` must be added to the company's `stockRoots` before adjustments can be made. When `stockRoots` are set up, `owner` is optional on adjustments (inferred from the stock place's stock root).
+
 ### Step 1: Receive Goods from Supplier
 
 ```bash
+# owner is optional here - inferred from WH-RECEIVING's stock root
 POST /v1/stock-adjustments
 {
   "identifiers": {"com.example.adjustmentId": "RECEIPT-2024-001"},
   "timestamp": "2024-12-15T08:00:00Z",
-  "owner": {"identifiers": {"com.example.companyId": "TELECOM-AB"}},
   "items": [
     {
       "product": {"identifiers": {"com.example.sku": "IPHONE-15-PRO"}},
@@ -1338,7 +1432,6 @@ POST /v1/stock-adjustments
 {
   "identifiers": {"com.example.adjustmentId": "TRANSFER-2024-001"},
   "timestamp": "2024-12-15T09:00:00Z",
-  "owner": {"identifiers": {"com.example.companyId": "TELECOM-AB"}},
   "items": [
     {
       "product": {"identifiers": {"com.example.sku": "IPHONE-15-PRO"}},
